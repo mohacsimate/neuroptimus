@@ -2,4 +2,5 @@ efel==4.1.1
 matplotlib==3.6.0
 NEURON==8.2.1
 numpy==1.23.3
-
+PyMuPDF==1.24.11
+fitz==0.0.1.dev2
