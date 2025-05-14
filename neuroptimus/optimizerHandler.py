@@ -1,4 +1,4 @@
-from fitnessFunctions import fF,frange
+from fitnessFunctions import fF,frange,fF_Factory
 from optionHandler import optionHandler
 import sys
 import logging
@@ -100,7 +100,7 @@ class SINGLERUN():
 	An abstract base class to implement a single evaluation process.
 	"""
 	def __init__(self, reader_obj, option_obj):
-		self.fit_obj = fF(reader_obj,  option_obj)
+		self.fit_obj = fF_Factory.create(reader_obj,  option_obj)
 		self.SetFFun(option_obj)
 		self.directory = option_obj.base_dir
 		self.num_params = option_obj.num_params
@@ -128,18 +128,24 @@ class baseOptimizer():
 	An abstract base class to implement the base of an optimization process.
 	"""
 	def __init__(self, reader_obj,  option_obj):
-		self.fit_obj = fF(reader_obj,  option_obj)
+		self.fit_obj = fF_Factory.create(reader_obj,  option_obj)
 		self.SetFFun(option_obj)
 		self.rand = random
 		self.seed = int(option_obj.seed)
 		self.rand.seed(self.seed)
 		self.directory = option_obj.base_dir
 		self.num_params = option_obj.num_params
-		self.number_of_traces = reader_obj.number_of_traces()
-		self.num_obj = self.num_params*int(self.number_of_traces)
+		if option_obj.type[-1]=="hippounit":
+			self.number_of_traces = None
+		elif option_obj.type[-1]!= "features":
+			self.number_of_traces = reader_obj.number_of_traces()
+		else:
+			self.number_of_traces = len(reader_obj.features_data["stim_amp"])
+		#self.num_obj = self.num_params*int(self.number_of_traces)
 		self.boundaries = option_obj.boundaries
 		self.algo_params =  copy.copy(option_obj.algorithm_parameters)
 		open(self.directory+"/eval.txt", "w")
+		open(self.directory+"/subfeature_scores.txt", "w")
 
 	def SetFFun(self,option_obj):
 		"""
@@ -152,7 +158,7 @@ class baseOptimizer():
 		except KeyError:
 			sys.exit("Unknown fitness function!")
 		
-		if option_obj.type[-1]!= 'features':
+		if option_obj.type[-1]!= 'features' and option_obj.type[-1]!='hippounit':
 			try:
 				option_obj.feats = [self.fit_obj.calc_dict[x] for x in option_obj.feats]
 			except KeyError:
@@ -361,6 +367,7 @@ class BluepyoptAlgorithmBasis(baseOptimizer):
 		self.size_of_population = self.algo_params.pop("size_of_population")
 		self.number_of_generations = self.algo_params.pop("number_of_generations")
 		self.number_of_cpu = int(self.algo_params.pop("number_of_cpu",1))
+		self.continue_cp = self.algo_params.pop("continue_cp")
 		self.option_obj.multi_objective=True
 		self.param_names = self.option_obj.GetObjTOOpt()
 		self.number_of_traces = reader_obj.number_of_traces()
@@ -385,12 +392,12 @@ class BluepyoptAlgorithmBasis(baseOptimizer):
 			map_function = view.map_sync
 			print('Using ipyparallel with '+str(len(c))+' engines')
 			optimisation = self.bpop.optimisations.DEAPOptimisation(evaluator = self.Evaluator(self.objectives,self.params,self.ffun),map_function=map_function,selector_name=self.selector_name,offspring_size=self.size_of_population,seed=self.seed,**self.algo_params)
-			self.solution, self.hall_of_fame, self.logs, self.hist = optimisation.run(int(self.number_of_generations))
+			self.solution, self.hall_of_fame, self.logs, self.hist = optimisation.run(int(self.number_of_generations),cp_filename=(self.directory+"/checkpoint.pkl"))
 			#os.system("ipcluster stop")
 		else:
 			print("*****************Single Run : " + self.selector_name + " *******************")
 			optimisation = self.bpop.optimisations.DEAPOptimisation(evaluator = self.Evaluator(self.objectives,self.params,self.ffun),selector_name=self.selector_name,offspring_size=self.size_of_population,seed=self.seed,**self.algo_params)
-			self.solution, self.hall_of_fame, self.logs, self.hist = optimisation.run(int(self.number_of_generations))
+			self.solution, self.hall_of_fame, self.logs, self.hist = optimisation.run(int(self.number_of_generations),cp_filename=(self.directory+"/checkpoint.pkl"),continue_cp=self.continue_cp)
 
 
 	class Evaluator():
@@ -991,6 +998,10 @@ class CMAES_CMAES(baseOptimizer):
 			self.starting_points = [normalize(option_obj.starting_points, self)]
 		else:
 			self.starting_points = np.ones(len(self.boundaries[0]))*0.5
+		"""if os.path.isfile(self.directory+"/checkpoint_cmaes.pickle"):
+				with open(self.directory+"/checkpoint_cmaes.pickle", 'rb') as outfile:
+					self.cmaoptimizer=pickle.load(outfile)
+		else:"""
 		from cmaes import CMA
 		self.cmaoptimizer = CMA(mean=(self.starting_points), **self.algo_params, seed=self.seed, population_size=int(self.size_of_population), bounds=np.array([[0,1]]*len(self.boundaries[0])))
 		
@@ -999,28 +1010,18 @@ class CMAES_CMAES(baseOptimizer):
 			"""
 			Performs the optimization.
 			"""
-			if os.path.isfile(self.directory+"/checkpoint_cmaes.pickle"):
-				with open(self.directory+"/checkpoint_cmaes.pickle", 'rb') as outfile:
-					self.cmaoptimizer=pickle.load(outfile)
-					
-			if os.path.isfile(self.directory+"/checkpoint_cmaes.json") and not (os.stat(self.directory+"/checkpoint_cmaes.json").st_size == 0):
-				with open(self.directory+"/checkpoint_cmaes.json", 'r') as outfile:
-					checkpoint=json.load(outfile)
-					self.cmaoptimizer.tell(checkpoint)
 					
 			with Pool(int(self.number_of_cpu)) as pool:
-				for generation in range(int(self.number_of_generations)):
-					print("Generation: {0}".format(generation))
+				for generation in range(int(self.number_of_generations-int(self.cmaoptimizer.generation))):
+					"""with open(self.directory+"/checkpoint_cmaes.pickle", "wb") as outfile:
+						pickle.dump(self.cmaoptimizer, outfile)"""
+					print("Generation: {0}".format(self.cmaoptimizer.generation))
 					solutions = []
 					candidate = [self.cmaoptimizer.ask() for _ in range(self.cmaoptimizer.population_size)]
 					fitness = pool.map(self.ffun,candidate)
 					solutions=[[list(pop), fit[0]] for pop,fit in zip(candidate,fitness)]
 					self.cmaoptimizer.tell(solutions)
 					
+					
 
-			with open(self.directory+"/checkpoint_cmaes.pickle", "wb") as outfile:
-				pickle.dump(self.cmaoptimizer, outfile)
-
-			with open(self.directory+"/checkpoint_cmaes.json", "w") as outfile:
-				json.dump(solutions, outfile)
 					

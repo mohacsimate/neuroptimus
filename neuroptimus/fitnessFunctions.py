@@ -9,6 +9,9 @@ import random
 import threading
 import matplotlib.pyplot as plt
 import threading
+import json
+import collections
+import traceback
 try:
     import copyreg
 except:
@@ -16,7 +19,7 @@ except:
 
 from types import MethodType
 import os
-
+import pkg_resources
 
 """try:
     import cPickle as pickle
@@ -87,6 +90,14 @@ class spike(spike_frame):
     def __init(self, start, start_val, peak, peak_val, stop, stop_val, spike):
         spike_frame.__init__(self, start, start_val, peak, peak_val, stop, stop_val)
         self.s = spike#vector, with the spike in it
+
+class fF_Factory:
+    @classmethod
+    def create(cls, reader_object, option_object):
+        if option_object.type[-1] == "hippounit":
+            return fF_HippoUnit(reader_object, option_object)
+        else:
+            return fF(reader_object, option_object)
 
 class fF(object):
     """
@@ -807,7 +818,11 @@ class fF(object):
                 print(fsum(temp) / len(temp) / (pow(max(exp_t) - min(exp_t), 2)))
         except OverflowError:
                 return 1
-        return fsum(temp) / len(temp) / (pow(max(exp_t) - min(exp_t), 2))
+        
+        if min(exp_t) == max(exp_t):      # if the max and min of the exp data is equal, there is no need for normalization in the calculation of ase
+            return fsum(temp) / len(temp) #/ (pow(max(exp_t) - min(exp_t), 2))
+        else:    
+            return fsum(temp) / len(temp) / (pow(max(exp_t) - min(exp_t), 2))
 
 
     def calc_spike(self, mod_t, exp_t, args):
@@ -937,6 +952,7 @@ class fF(object):
         npcandidates=np.asarray(candidates).flatten()
         self.model_trace = []
         self.fitnes = []
+        feature_score=[]
         features = self.option.feats
         weigths = self.option.weights
         if self.option.multi_objective:
@@ -1010,11 +1026,14 @@ class fF(object):
                                 raise sizeError("model: " + str(len(self.model.record[0])) + ", target: " + str(len(self.reader.data.GetTrace(k))))
                             temp_fit.append((f(self.model.record[0],
                                                               self.reader.data.GetTrace(k), args)))
-
+                            feature_score.append((f(self.model.record[0],
+                                                              self.reader.data.GetTrace(k), args))) 
                     else:
                         for f, w in zip(features, weigths):
                             temp_fit.append(self.FFun_for_Features(self.model.record[0],
                                                                 self.reader.features_data, f, k, args))
+                            feature_score.append(self.FFun_for_Features(self.model.record[0],
+                                                                self.reader.features_data, f, k, args)) 
                 else:
                         temp_fit.append(100)
             else:
@@ -1028,19 +1047,25 @@ class fF(object):
                                 raise sizeError("model: " + str(len(self.model.record[0])) + ", target: " + str(len(self.reader.data.GetTrace(k))))
                             temp_fit += w * (f(self.model.record[0],
                                                             self.reader.data.GetTrace(k), args))
+                            feature_score.append((f(self.model.record[0],
+                                                              self.reader.data.GetTrace(k), args)))                                
 
                     else:
                         for f, w in zip(features, weigths):
                             temp_fit += w * self.FFun_for_Features(self.model.record[0],
-                                                                self.reader.features_data, f, k, args)    
+                                                                self.reader.features_data, f, k, args)
+                            feature_score.append(self.FFun_for_Features(self.model.record[0],
+                                                                self.reader.features_data, f, k, args))    
                 else:
                         temp_fit=100
         with open(self.option.base_dir+"/eval.txt", "a") as f: 
             f.write(str([temp_fit,[x for x in npcandidates]])+" \n")
+        with open(self.option.base_dir+"/subfeature_scores.txt", "a") as f: 
+            f.write(str([feature_score,[x for x in npcandidates]])+" \n")
         if self.option.output_level == "1":
             print("current fitness: ",temp_fit)
         if(self.option.simulator == 'Neuron') and delete_model:
-            "Deletes the reference of the instance"
+            #Deletes the reference of the instance
             del self.model
         return [temp_fit]
 
@@ -1067,7 +1092,7 @@ class fF(object):
             add_data = None
         args = {}
         args["add_data"] = add_data
-        if (self.option.type[-1]!='features'):
+        if self.option.type[-1]!='features' and self.option.type[-1]!='hippounit':
             for f, w in zip(features, weigths):
                 fit_list.append([w, f, (f(model_output, self.reader.data.GetTrace(index_of_trace), args))])
         else:

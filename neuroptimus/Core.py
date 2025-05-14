@@ -8,7 +8,10 @@ import numpy
 import json
 import os
 import matplotlib
+# matplotlib.use("Qt5Agg")
+matplotlib.use("Agg")
 matplotlib.interactive(False)
+from matplotlib import pyplot as plt
 
 class my_candidate():
 	"""
@@ -85,6 +88,7 @@ class coreModul():
 						"AHP depth",
 						"AP width",
 						"Derivative difference"]
+		self.hippounit_tests_names = ["SomaticFeaturesTest", "PSPAttenuationTest", "BackpropagatingAPTest", "PathwayInteraction","DepolarizationBlockTest", "ObliqueIntegrationTest",  ]
 		self.grid_result=None
 
 	def htmlStrBold(self,inp):
@@ -128,6 +132,13 @@ class coreModul():
 	def htmlPciture(self,inp):
 		return "<p align=\"center\"><img style=\"border:none;\" src=\""+inp+"\" ></p>"
 
+	def htmlPdf(self, inp):
+		#return "<p align=\"center\"><embed src = \""+inp+"#toolbar=0&navpanes=0&scrollbar=0\" width = \"800px\" height = \"630px\" /></p>"
+		return f"""<p align=\"center\"><embed src = \"{inp}\" width = \"800px\" height = \"630px\" /></p>"""
+	
+	
+
+
 
 	def Print(self):
 		print([self.option_handler.GetFileOption(),
@@ -149,14 +160,18 @@ class coreModul():
 		:param args: dictionary with keys "file" and "input"
 
 		"""
-		self.option_handler.SetFileOptions(args.get("file"))
+		# print("args inside first step: ")
+		# print(args)
+		self.option_handler.SetFileOptions(args.get("file")) 
 		self.option_handler.SetInputOptions(args.get("input"))
 
-		self.data_handler.Read([self.option_handler.input_dir],self.option_handler.input_size,self.option_handler.input_scale,self.option_handler.input_length,self.option_handler.input_freq,self.option_handler.type[-1])
-
-
-		if self.option_handler.type[-1]=='features':
-			self.option_handler.input_size= len(self.data_handler.features_data['stim_amp'])
+		stim_type = self.option_handler.type[-1]
+		if stim_type.lower() == "hippounit":
+			self.option_handler.SetSimParam(["hippounit", []])
+		else:
+			self.data_handler.Read([self.option_handler.input_dir],self.option_handler.input_size,self.option_handler.input_scale,self.option_handler.input_length,self.option_handler.input_freq,stim_type)
+			if stim_type == "features":
+				self.option_handler.input_size= len(self.data_handler.features_data['stim_amp'])
 
 	def LoadModel(self,args):
 		"""
@@ -168,10 +183,15 @@ class coreModul():
 
 		"""
 		self.model_handler=None
+		# print("args inside load model: ")
+		# print(args)
 		self.option_handler.SetSimParam([args.get("simulator","Neuron"),args.get("sim_command"),None])
 		if self.option_handler.GetSimParam()[0]=="Neuron":
 			self.option_handler.SetModelOptions(args.get("model"))
 			self.model_handler=modelHandlerNeuron(self.option_handler.model_path,self.option_handler.model_spec_dir,self.option_handler.base_dir)
+		elif self.option_handler.GetSimParam()[0] == "hippounit":
+			self.option_handler.SetModelOptions(args.get("model"))
+			return
 		else:
 			self.model_handler=externalHandler(self.option_handler.GetSimParam()[1])
 			self.model_handler.SetNParams(self.option_handler)
@@ -180,6 +200,7 @@ class coreModul():
 			else:
 				k_range=len(self.data_handler.features_data["stim_amp"])
 			self.option_handler.SetModelStimParam([[0]*k_range,0,0])
+
 	
 	def ReturnSections(self):
 		"""
@@ -347,7 +368,11 @@ class coreModul():
 					* starting_points
 		"""
 		self.grid_result=None
+		# print("args inside third step: ")
+		# print(args)
 		if args!=None:
+			# print("args inside third step: ")
+			# print(args)
 			self.option_handler.SetModelRun(args.get("runparam"))
 			fit_par=[]
 			fit_par.append(args.get("feat",[]))
@@ -363,7 +388,7 @@ class coreModul():
 			#tmp.append(args.get("starting_points"))
 			self.option_handler.SetOptimizerOptions(tmp)
 
-		if self.option_handler.type[-1]!='features':
+		if self.option_handler.type[-1]!='features' and self.option_handler.type[-1]!='hippounit':
 			if self.option_handler.run_controll_dt<self.data_handler.data.step:
 				print("re-sampling because integration step is smaller then data step")
 				print((self.option_handler.run_controll_dt,self.data_handler.data.step))
@@ -391,8 +416,10 @@ class coreModul():
 				self.option_handler.run_controll_dt=self.data_handler.data.step
 
 		exec("self.optimizer="+self.option_handler.algorithm_name+"(self.data_handler,self.option_handler)")
-
-		if self.option_handler.type[-1]!= 'features':
+		# self.optimizer=RANDOM_SEARCH(self.data_handler,self.option_handler)
+		if self.option_handler.type[-1] == 'hippounit':
+			self.option_handler.feat_str = ""  # TODO
+		elif self.option_handler.type[-1]!= 'features':
 			self.option_handler.feat_str=", ".join([self.ffun_mapper[x.__name__] for x in self.option_handler.feats])
 		else:
 			self.option_handler.feat_str=", ".join(self.option_handler.feats)
@@ -419,8 +446,31 @@ class coreModul():
 					fitness=solution[0]
 					self.solutions.append(my_candidate(candidate[:self.option_handler.num_params],fitness))
 			
+			#extracting subfeatures for every candidate		
+			self.features_by_generations = []
+			subfeature_scores=[]
+			current_population = []
+			self.number_of_traces = self.data_handler.number_of_traces()
+			feats = list(self.option_handler.feat_str.split(', '))
+			self.objectives = feats*self.number_of_traces
+			with open(self.option_handler.base_dir+"/subfeature_scores.txt","r") as ind_file:
+				for idx,line in enumerate(ind_file):
+					solution = json.loads(line)
+					candidate=solution[1]
+					feature_scores=solution[0]
+					subfeature_scores.append([candidate[:self.option_handler.num_params],zip(self.objectives,feature_scores)])
+					if not (idx+1)%self.optimizer.size_of_population:
+						self.features_by_generations.append(subfeature_scores)
+						subfeature_scores = []
 			
+			"""if self.option_handler.algorithm_name.split("_")[1] == "SCIPY":
+				ordered_solutions = []
+				for i in range(self.optimizer.size_of_population):
+					for x in range(0,self.optimizer.number_of_generations*self.optimizer.size_of_population,self.optimizer.number_of_generations):
+						ordered_solutions.append(self.solutions[x+i])
+				self.solutions = ordered_solutions"""
 			
+			print(self.solutions[0].fitness)
 			if isinstance(self.solutions[0].fitness,list):
 				for solution in self.solutions:
 					wsum = sum([w*f for f,w in zip(solution.fitness,self.option_handler.weights*self.data_handler.number_of_traces())])
@@ -448,6 +498,7 @@ class coreModul():
 			self.option_handler.WriteIndFile(self.solutions_by_generations)
 			self.option_handler.WriteStatFile(self.solutions_by_generations)
 
+
 			self.cands = [x.candidate for x in self.solutions]
 			self.fits = [x.fitness for x in self.solutions]
 
@@ -471,66 +522,93 @@ class coreModul():
 		A report of the results is generated in the form of a html document.
 		:param args: currently not in use
 		"""
-		self.optimizer.fit_obj.objective_fitness(self.optimizer.fit_obj.normalize(self.optimal_params),delete_model=False)
+		if self.option_handler.type[-1] == 'hippounit':
+			self.optimizer.fit_obj.is_figures_saved = True
+
+
+		self.best_fit=self.optimizer.fit_obj.objective_fitness(self.optimizer.fit_obj.normalize(self.optimal_params),delete_model=False)
+		
+
+		
 		self.final_result=[]
 		self.error_comps=[]
-		k_range=self.data_handler.number_of_traces()
-			
-		for k in range(k_range):
-			self.error_comps.append(self.optimizer.fit_obj.getErrorComponents(k, self.optimizer.fit_obj.model_trace[k]))
-			with open("result_trace"+str(k)+".txt","w+") as trace_handler:
+
+
+		if self.option_handler.type[-1] == 'hippounit':
+			k_range = 1
+			self.error_comps.append(self.optimizer.fit_obj.getTestErrorComponents())
+		else:
+			if self.option_handler.type[-1]!= 'features':
+				k_range=self.data_handler.number_of_traces()
+			else:
+				k_range=len(self.data_handler.features_data["stim_amp"])
+
+			for k in range(k_range):
+				self.error_comps.append(self.optimizer.fit_obj.getErrorComponents(k, self.optimizer.fit_obj.model_trace[k]))
+				trace_handler=open("result_trace"+str(k)+".txt","w+")
 				for l in self.optimizer.fit_obj.model_trace[k]:
 					trace_handler.write(str(l))
 					trace_handler.write("\n")
-			self.final_result.append(self.optimizer.fit_obj.model_trace[k])
+				trace_handler.close()
+				self.final_result.append(self.optimizer.fit_obj.model_trace[k])
+
+
 
 		if isinstance(self.optimizer.fit_obj.model, externalHandler):
 			self.optimizer.fit_obj.model.record[0]=[]
 
-		fig, axes = matplotlib.pyplot.subplots(1, figsize=(7, 6))
-		fig.clf()
-		axes = fig.add_subplot(111)
-		exp_data = []
-		model_data = []
-		if self.option_handler.type[-1] != 'features':
-			for n in range(k_range):
-				exp_data.extend(self.data_handler.data.GetTrace(n))
-				model_data.extend(self.final_result[n])
-		else:
-			for n in range(k_range):
-				model_data.extend(self.final_result[n])
-		if self.option_handler.type[-1]  != 'features':
-			t = int(self.option_handler.input_length)
-		else:
-			t = int(self.option_handler.run_controll_tstop)
-		step = self.option_handler.run_controll_dt
-		axes.set_xticks([n for n in range(0, int((t * k_range) / (step)), int((t * k_range) / (step) / 5.0)) ])
-		axes.set_xticklabels([str(n) for n in range(0, int(t * k_range), int((t * k_range) / 5))])
+		# ---------------------------------------------------------------------------- #
+		#TODO : result trace fig May not work with hippoUnit, Comment it then
+		if self.option_handler.type[-1] != 'hippounit':
+			fig, axes = plt.subplots(1, figsize=(7, 6))
+			fig.clf()
+			axes = fig.add_subplot(111)
+			exp_data = []
+			model_data = []
+			if self.option_handler.type[-1] != 'features':
+				for n in range(k_range):
+					exp_data.extend(self.data_handler.data.GetTrace(n))
+					model_data.extend(self.final_result[n])
+			else:
+				for n in range(k_range):
+					model_data.extend(self.final_result[n])
+			if self.option_handler.type[-1]  != 'features':
+				t = int(self.option_handler.input_length)
+			else:
+				t = int(self.option_handler.run_controll_tstop)
+			step = self.option_handler.run_controll_dt
+			axes.set_xticks([n for n in range(0, int((t * k_range) / (step)), int((t * k_range) / (step) / 5.0)) ])
+			axes.set_xticklabels([str(n) for n in range(0, int(t * k_range), int((t * k_range) / 5))])
 
-		
-		axes.set_xlabel("time [ms]")
-		if self.option_handler.type[-1]!= 'features':
-			_type = self.data_handler.data.type
-		else:
-			_type = "Voltage" if self.option_handler.run_controll_record =="v" else "Current" if self.option_handler.run_controll_record == "c" else ""
-		axes.set_ylabel(_type + " [" + self.option_handler.input_scale + "]")
-		if self.option_handler.type[-1]!= 'features':
-			axes.plot(list(range(0, len(exp_data))), exp_data)
-			axes.plot(list(range(0, len(model_data))), model_data, 'r')
-			axes.legend(["target", "model"])
-		else:
-			axes.plot(list(range(0, len(model_data))), model_data, 'r')
-			axes.legend(["model"])
-		fig.savefig("result_trace.png", dpi=None, facecolor='w', edgecolor='w',
-		orientation='portrait', format=None, bbox_inches=None, pad_inches=0.1)
-		#fig.savefig("result_trace.eps", dpi=None, facecolor='w', edgecolor='w')
-		fig.savefig("result_trace.svg", dpi=None, facecolor='w', edgecolor='w')
+			
+			axes.set_xlabel("time [ms]")
+			if self.option_handler.type[-1]!= 'features':
+				_type = self.data_handler.data.type
+			else:
+				_type = "Voltage" if self.option_handler.run_controll_record =="v" else "Current" if self.option_handler.run_controll_record == "c" else ""
+			axes.set_ylabel(_type + " [" + self.option_handler.input_scale + "]")
+			if self.option_handler.type[-1]!= 'features':
+				axes.plot(list(range(0, len(exp_data))), exp_data)
+				axes.plot(list(range(0, len(model_data))), model_data, 'r')
+				axes.legend(["target", "model"])
+			else:
+				axes.plot(list(range(0, len(model_data))), model_data, 'r')
+				axes.legend(["model"])
+			fig.savefig("result_trace.png", dpi=None, facecolor='w', edgecolor='w',
+			orientation='portrait', format=None, bbox_inches=None, pad_inches=0.1)
+			#fig.savefig("result_trace.eps", dpi=None, facecolor='w', edgecolor='w')
+			fig.savefig("result_trace.svg", dpi=None, facecolor='w', edgecolor='w')
+		# ---------------------------------------------------------------------------- #
+
 
 		self.name=self.option_handler.model_path.split("/")[-1].split(".")[0]
 		f_handler=open(self.name+"_results.html","w+")
 		tmp_str="<!DOCTYPE html>\n<html>\n<body>\n"
 		tmp_str+=self.htmlStr(str(time.asctime( time.localtime(time.time()) )))+"\n"
-		tmp_str+="<p>"+self.htmlStyle("Optimization of <b>"+self.name+".hoc</b> based on: "+self.option_handler.input_dir,self.htmlAlign("center"))+"</p>\n"
+		if not self.option_handler.type[-1] == 'hippounit':
+			tmp_str+="<p>"+self.htmlStyle("Optimization of <b>"+self.name+".hoc</b> based on: "+self.option_handler.input_dir,self.htmlAlign("center"))+"</p>\n"
+		else: #TODO: Add more infromative text for hippounit
+			tmp_str+="<p>"+self.htmlStyle("Optimization of <b>"+self.name+".hoc</b>  ",self.htmlAlign("center"))+"</p>\n"
 		tmp_list=[]
 		tmp_fit=self.optimal_params
 		for name,mmin,mmax,f in zip(self.option_handler.GetObjTOOpt(),self.option_handler.boundaries[0],self.option_handler.boundaries[1],tmp_fit):
@@ -540,7 +618,35 @@ class coreModul():
 		tmp_str+=self.htmlTable(["Parameter Name","Minimum","Maximum","Optimum"], tmp_list)+"\n"
 		tmp_str+="<center><p>"+self.htmlStrBold("Fitness: ")
 		tmp_str+=self.htmlStrBold(str(self.best_fit))+"</p></center>\n"
-		tmp_str+=self.htmlPciture("result_trace.png")+"\n"
+
+		if self.option_handler.type[-1] == "hippounit": # TODO: what to plot in the html in the case of hippounit for each test type?
+			hippounit_settings = self.optimizer.fit_obj.model.settings
+			model_name = hippounit_settings["model"]["name"]
+			# test_name = 'somaticfeat' 
+			test_name =  ""
+			tests = hippounit_settings["model"]["tests"]
+			for test in tests: #filling test_name
+					test_name += test + "_"
+			test_name = test_name[:-1]
+			dataset_name = hippounit_settings["model"]["dataset"]
+			output_path = hippounit_settings["model"]["output_dir"]
+
+			# pdf_path = "output/figs/{}_{}/{}/traces.pdf".format(test_name, dataset_name, model_name)
+			traces_pdfs = self.get_generated_plots_paths("traces", "pdf")
+			#if any value ends with traces.pdf show it
+			for key, pdf_path in traces_pdfs.items(): #TODO list all traces from different tests
+				if pdf_path.endswith("traces.pdf"):
+					tmp_str+=self.htmlPdf(pdf_path)+"\n"
+					break
+				
+			# pdf_path = os.path.join(output_path, "figs", "{}_{}/{}/traces.pdf".format(test_name, dataset_name, model_name))
+
+			
+		else:
+			tmp_str+=self.htmlPciture("result_trace.png")+"\n"
+
+
+
 		for k in list(self.option_handler.GetOptimizerOptions().keys()):
 			tmp_str+="<p><b>"+k+" =</b> "+str(self.option_handler.GetOptimizerOptions()[k])+"</p>\n"
 		tmp_str+="<p><b>feats =</b> "+self.option_handler.feat_str +"</p>\n"
@@ -554,7 +660,7 @@ class coreModul():
 		tmp_list=[]
 		for t in self.error_comps:
 			for c in t:
-				if self.option_handler.type[-1]!='features':
+				if self.option_handler.type[-1]!='features' and self.option_handler.type[-1]!= 'hippounit':
 				#tmp_str.append( "*".join([str(c[0]),c[1].__name__]))
 					tmp_list.append([self.ffun_mapper[c[1].__name__],
 										str(c[2]),
@@ -578,7 +684,7 @@ class coreModul():
 				tmp[1]+=c[t_idx][2]
 				tmp[2]=c[t_idx][0]
 				tmp[3]+=c[t_idx][2]*c[t_idx][0]
-			if self.option_handler.type[-1]!='features':
+			if self.option_handler.type[-1]!='features' and self.option_handler.type[-1]!= 'hippounit':
 				tmp[0]=self.ffun_mapper[c[t_idx][1].__name__]
 			else:
 				tmp[0]=(c[t_idx][1])
@@ -590,6 +696,20 @@ class coreModul():
 		f_handler.close()
 		
 		if self.option_handler.algorithm_name != "SINGLERUN":
+			#creating json file for subfeatures
+			subfeatures_json=[]
+			for generation_number,current_generation in enumerate(self.features_by_generations):
+				for individual_number,individual_details in enumerate(current_generation):
+					individual_dict={"generation":generation_number,"individual":individual_number}
+					for k,v in individual_details[1]:
+						if k in individual_dict:
+							individual_dict[k].append(v)
+						else:
+							individual_dict[k] = [v]
+					subfeatures_json.append(individual_dict)
+			with open('subfeature_scores.json', 'w+') as outfile:
+				json.dump(subfeatures_json, outfile, indent=4)
+			#creating metadata json file
 			param_dict = [{"name":value[0],"min_boundary":value[1],"max_boundary":value[2],"optimum":value[3]} for value in param_list]
 			error_dict = [{"name":value[0],"value":value[1],"weight":value[2],"weighted_value":value[3]} for value in tmp_list]  
 			algo_name = self.option_handler.algorithm_name.split("_")
@@ -601,7 +721,10 @@ class coreModul():
 			,"seed": self.option_handler.seed,"final_fitness":self.best_fit,"number_of_evaluations": len(self.solutions),
 			"models":{"model_name":self.name,"model_author":os.uname()[1]},"parameters":param_dict,"error_function":error_dict, "algorithm":[alg_dict],"target_data":target_dict, "created_at":datetime.strftime(datetime.utcnow(),"%Y-%m-%dT%H:%M:%S.%fZ")}
 			
-			if self.option_handler.type[-1]=='features':
+			if self.option_handler.type[-1]=='hippounit':
+				with open('metadata.json', 'w+') as outfile:
+					json.dump(json_var, outfile, indent=4)
+			elif self.option_handler.type[-1]=='features':
 				with open(self.option_handler.input_dir, 'r') as outfile:
 					input_features=json.load(outfile)
 					amp_list=[]
@@ -613,24 +736,80 @@ class coreModul():
 								amp_list.append({"stim_amplitude": float(t.replace('stimAmp_','')),"features":[{k.lower(): v for k, v in feats.items()}]})
 					json_var["target_data"].update({"stim_amp":sorted(amp_list,key=lambda d: d["stim_amplitude"])})
 			else:
-				json_var["target_data"].update({"length_ms":self.data_handler.data.t_length,"sampling_frequency":self.data_handler.data.freq})
-				if not isinstance(self.option_handler.stim_amp[0],str):
-					json_var["target_data"].update({"stim_amp":[{"stim_amplitude":stim} for stim in self.option_handler.stim_amp]})
+				json_var["target_data"].update({"length_ms":self.data_handler.data.t_length,"sampling_frequency":self.data_handler.data.freq
+				,"stim_amp":[{"stim_amplitude":stim} for stim in self.option_handler.stim_amp]})
 			json_var["target_data"]=[json_var["target_data"]]
 			json_stat=[]
 			for idx,current_generation in enumerate(self.solutions_by_generations):
 						generation_fitness = [x.fitness for x in current_generation]
-						x={"generation":idx,"population":len(current_generation),
+						json_stat.append({"generation":idx,"population":len(current_generation),
 						"maximum":np.max(generation_fitness),"minimum":np.min(generation_fitness),
-						"median":np.median(generation_fitness),"mean":np.mean(generation_fitness),"std":np.std(generation_fitness)}
-						json_stat.append({k:v for k,v in x.items() if v != float('inf') and v != float('-inf') and not numpy.isnan(v)})
-			json_var["convergence_score"] = sum([np.log10(x["minimum"]) for x in json_stat])
+						"median":np.median(generation_fitness),"mean":np.mean(generation_fitness),"std":np.std(generation_fitness)})
 			json_var["statistics"]=json_stat
 			with open('metadata.json', 'w+') as outfile:
 				json.dump(json_var, outfile, indent=4)
 			
+	def test_default_folder_name(self, test_name:str) -> str:
+		if test_name == "SomaticFeaturesTest":
+			return "somaticfeat"
+		elif test_name == "PSPAttenuationTest":
+			return "PSP_attenuation"
+		elif test_name == "BackpropagatingAPTest":
+			return "backpropagating_AP"
+		elif test_name == "PathwayInteraction":
+			return "pathway_interaction"
+		elif test_name == "DepolarizationBlockTest":
+			return "depol_block"
+		elif test_name == "ObliqueIntegrationTest":
+			return "oblique_integration"
 		
-
+	def get_generated_plots_paths(self, plot_name:str = None,format= "pdf"):
+		if self.option_handler.type[-1] == "hippounit": # TODO: what to plot in the html in the case of hippounit for each test type?
+			hippounit_settings = self.optimizer.fit_obj.model.settings
+			model_name = hippounit_settings["model"]["name"]
+			tests = hippounit_settings["model"]["tests"]
+			plot_paths = {}
+			if plot_name is not None:
+				for test in tests:
+					test_name = self.test_default_folder_name(test) #TODO : now we are assuming that there is only one test
+					dataset_name = hippounit_settings["model"]["dataset"]
+						
+					output_path = hippounit_settings["model"]["output_dir"]
+					if dataset_name : 
+						plots_path_per_test = os.path.join(output_path, "figs", f"{test_name}_{dataset_name}/{model_name}/{plot_name}.{format}")
+						#check if the file exists
+						if not os.path.exists(plots_path_per_test):
+							plots_path_per_test = os.path.join(output_path, "figs", f"{test_name}/{model_name}/{plot_name}.{format}")
+					else:
+						plots_path_per_test = os.path.join(output_path, "figs", f"{test_name}/{model_name}/{plot_name}.{format}")
+					plot_name = f"{test_name} {plot_name}"
+					if os.path.exists(plots_path_per_test):
+						plot_paths[plot_name] = plots_path_per_test
+			else: #get all pdf plots in each test "figs" folder
+				for test in tests:
+					test_name = self.test_default_folder_name(test)
+					dataset_name = hippounit_settings["model"]["dataset"]
+					output_path = hippounit_settings["model"]["output_dir"]
+					if dataset_name:
+						plots_path_per_test = os.path.join(output_path, "figs", f"{test_name}_{dataset_name}/{model_name}")
+						#check if the file exists
+						if not os.path.exists(plots_path_per_test):
+							plots_path_per_test = os.path.join(output_path, "figs", f"{test_name}/{model_name}")
+						for file in os.listdir(plots_path_per_test):
+							if file.endswith(f".{format}"):
+								plot_name = file.split(".")[0]
+								plot_paths[f"{test_name} {plot_name}"] = os.path.join(plots_path_per_test, file)
+					else:
+						plots_path_per_test = os.path.join(output_path, "figs", f"{test_name}/{model_name}")
+						for file in os.listdir(plots_path_per_test):
+							if file.endswith(f".{format}"):
+								plot_name = file.split(".")[0]
+								plot_paths[f"{test_name} {plot_name}"] = os.path.join(plots_path_per_test, file)
+			return plot_paths
+			
+		else:
+			return "result_trace.png"
+		
 
 	def callGrid(self,resolution):
 		"""

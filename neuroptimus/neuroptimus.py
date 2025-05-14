@@ -1,6 +1,10 @@
+import matplotlib
+matplotlib.use('Agg')
 import sys
 import traceback
 import getopt
+import warnings
+warnings.simplefilter("ignore", UserWarning)
 
 def main(parameters):
     """
