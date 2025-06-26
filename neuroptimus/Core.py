@@ -578,8 +578,10 @@ class coreModul():
 				t = int(self.option_handler.run_controll_tstop)
 			step = self.option_handler.run_controll_dt
 			axes.set_xticks([n for n in range(0, int((t * k_range) / (step)), int((t * k_range) / (step) / 5.0)) ])
-			axes.set_xticklabels([str(n) for n in range(0, int(t * k_range), int((t * k_range) / 5))])
-
+			try:
+				axes.set_xticklabels([str(n) for n in range(0, int(t * no_traces), int((t * no_traces) / 5))])
+			except:
+				pass
 			
 			axes.set_xlabel("time [ms]")
 			if self.option_handler.type[-1]!= 'features':

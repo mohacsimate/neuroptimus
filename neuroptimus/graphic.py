@@ -618,7 +618,7 @@ class Ui_Neuroptimus(QMainWindow):
         self.label_24.setFont(font)
         self.label_24.setObjectName("label_24")
         self.pushButton_12 = QtWidgets.QPushButton(self.modeltab)
-        self.pushButton_12.setGeometry(QtCore.QRect(150, 50, 140, 22))
+        self.pushButton_12.setGeometry(QtCore.QRect(150, 70, 140, 22))
         self.pushButton_12.setObjectName("pushButton_12")
         self.pushButton_13 = QtWidgets.QPushButton(self.modeltab)
         self.pushButton_13.setGeometry(QtCore.QRect(330, 100, 80, 22))
@@ -768,8 +768,8 @@ class Ui_Neuroptimus(QMainWindow):
         
         self.pushButton_16.setMinimumSize(QtCore.QSize(0, 40))
 
-
-        self.layout.addWidget(QHLine(), 4, 0, 1, 6)  # Add horizontal line
+        self.model_Hline=QHLine()
+        self.layout.addWidget(self.model_Hline, 4, 0, 1, 6)  # Add horizontal line
         self.layout.addWidget(self.param_table_label, 5, 0, 1, 6)
 
         self.layout.addWidget(self.modellist, 6, 0, 10, 3)
@@ -2037,7 +2037,7 @@ class Ui_Neuroptimus(QMainWindow):
         self.lineEdit_posins.setText("0.5")
         self.lineEdit_initv.setText("-65")
         self.lineEdit_dt.setText("0.05")
-        
+        self.setting_tab_unlocked=False
         self.stimprot.addItems(["IClamp","VClamp"])
         self.stimulus_type.addItems(["Step Protocol","Custom Waveform"])
         self.stimulus_type.currentIndexChanged.connect(self.typeChange)
@@ -3075,6 +3075,8 @@ class Ui_Neuroptimus(QMainWindow):
             self.pushButton_14.hide()
             self.pushButton_15.hide()
             self.pushButton_16.hide()
+            self.param_table_label.hide()
+            self.model_Hline.hide()
             self.setter.hide()
             self.remover.hide()
             self.modellist.hide()
@@ -3090,6 +3092,8 @@ class Ui_Neuroptimus(QMainWindow):
             self.sim_path.show()
             self.sim_param.show()
             self.pushButton_13.setText(QtCore.QCoreApplication.translate("Neuroptimus", "Set"))
+            self.param_table_label.hide()
+            self.model_Hline.hide()
             self.pushButton_12.hide()
             self.pushButton_14.hide()
             self.pushButton_15.hide()
@@ -3110,6 +3114,8 @@ class Ui_Neuroptimus(QMainWindow):
             if self.setting_tab_unlocked:
                 self.tabwidget.setTabEnabled(2,True)
             self.sim_path.hide()
+            self.param_table_label.show()
+            self.model_Hline.show()
             self.sim_param.hide()
             self.pushButton_12.hide()
             self.pushButton_14.show()
@@ -3139,6 +3145,7 @@ class Ui_Neuroptimus(QMainWindow):
         Load the selected Neuron model and displays the sections in a tablewidget
         """
         self.model_file = self.lineEdit_file2.text()
+        self.setting_tab_unlocked=True
         if not os.path.isfile(self.model_file):
             #focus on the model path input
             self.lineEdit_file2.setFocus()

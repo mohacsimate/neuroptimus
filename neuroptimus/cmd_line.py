@@ -127,8 +127,10 @@ def main(fname, param=None):
             t = int(ceil(core.option_handler.run_controll_tstop))
         step = core.option_handler.run_controll_dt
         axes.set_xticks([n for n in range(0, int((t * no_traces) / (step)), int((t * no_traces) / (step) / 5.0)) ])
-        axes.set_xticklabels([str(n) for n in range(0, int(t * no_traces), int((t * no_traces) / 5))])
-
+        try:
+        	axes.set_xticklabels([str(n) for n in range(0, int(t * no_traces), int((t * no_traces) / 5))])
+        except:
+        	pass
 
         axes.set_xlabel("time [ms]")
         if core.option_handler.type[-1]!= 'features' and core.option_handler.type[-1] != 'hippounit':
@@ -144,8 +146,7 @@ def main(fname, param=None):
             axes.plot(list(range(0, len(model_data))), model_data, 'r')
             axes.legend(["model"])
         fig.savefig("result_trace.png", dpi=None, facecolor='w', edgecolor='w',
-        orientation='portrait', papertype=None, format=None,
-        transparent=False, bbox_inches=None, pad_inches=0.1)
+        orientation='portrait', transparent=False, bbox_inches=None, pad_inches=0.1)
         fig.savefig("result_trace.eps", dpi=None, facecolor='w', edgecolor='w')
         fig.savefig("result_trace.svg", dpi=None, facecolor='w', edgecolor='w')
 
