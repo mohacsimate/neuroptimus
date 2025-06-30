@@ -774,7 +774,7 @@ class Ui_Neuroptimus(QMainWindow):
 
         self.layout.addWidget(self.modellist, 6, 0, 10, 3)
         self.layout.addWidget(self.pushButton_16, 6, 3, 2, 2) #define function
-        self.layout.addWidget(self.sim_param, 5, 2, 1, 1)
+        #self.layout.addWidget(self.sim_param, 5, 0, 1, 1)
         self.layout.addWidget(self.setter, 16, 0, 1, 1)
         self.layout.addWidget(self.remover, 16, 1, 1, 1)
 
@@ -3087,6 +3087,8 @@ class Ui_Neuroptimus(QMainWindow):
             self.label_26.show()
             self.label_27.show()
             self.load_mods_checkbox.hide()
+            self.model_name_label.hide()
+            self.model_name_input.hide()
             self.tabwidget.setTabEnabled(2,False)
         elif self.dd_type.currentIndex()==2:        
             self.sim_path.show()
@@ -3108,6 +3110,8 @@ class Ui_Neuroptimus(QMainWindow):
             self.label_24.hide()
             self.label_26.show()
             self.label_27.show()
+            self.model_name_label.hide()
+            self.model_name_input.hide()
             self.load_mods_checkbox.hide()
         else:
             self.pushButton_13.setText(QtCore.QCoreApplication.translate("Neuroptimus", "Load"))
@@ -3130,6 +3134,8 @@ class Ui_Neuroptimus(QMainWindow):
             self.label_24.show()
             self.label_26.hide()
             self.label_27.hide()
+            self.model_name_label.show()
+            self.model_name_input.show()
             self.load_mods_checkbox.show()
 
     def Loadpython(self, e):
@@ -3145,11 +3151,16 @@ class Ui_Neuroptimus(QMainWindow):
         Load the selected Neuron model and displays the sections in a tablewidget
         """
         self.model_file = self.lineEdit_file2.text()
+       	if not self.dd_type:
+       		sim_command = self.sim_path.text()
+       	else: 
+       		sim_command = self.sim_path.text()+" "+self.sim_param.text()
         self.setting_tab_unlocked=True
-        if not os.path.isfile(self.model_file):
+        if not os.path.isfile(self.model_file) and not sim_command:
             #focus on the model path input
             self.lineEdit_file2.setFocus()
             #error popup
+            print(self.model_file)
             popup("Invalid model path")
             return None
         self.tabwidget.setTabEnabled(2,True)
@@ -4257,7 +4268,10 @@ class Ui_Neuroptimus(QMainWindow):
             unit="mV" if _type=="voltage" else "nA" if _type=="current" else ""
             self.results_tab_axes.set_ylabel(_type+" [" + unit + "]")
             self.results_tab_axes.set_xticks([n for n in range(0, int((t * no_traces) / (step)), int((t * no_traces) / (step) / 5.0)) ])
-            self.results_tab_axes.set_xticklabels([str(n) for n in range(0, int(t * no_traces), int((t * no_traces) / 5))])
+            try:
+            	self.results_tab_axes.set_xticklabels([str(n) for n in range(0, int(t * no_traces), int((t * no_traces) / 5))])
+            except:
+            	pass
             self.results_tab_axes.plot(list(range(0, len(exp_data))), exp_data)
             self.results_tab_axes.plot(list(range(0, len(model_data))), model_data, 'r')
             self.results_tab_axes.legend(["target", "model"])
@@ -4278,7 +4292,10 @@ class Ui_Neuroptimus(QMainWindow):
             unit="mV" if _type=="v" else "nA" if _type=="c" else ""
             self.results_tab_axes.set_ylabel(_type_+" [" + unit + "]")
             self.results_tab_axes.set_xticks([n for n in range(0, int((t * no_traces) / (step)), int((t * no_traces) / (step) / 5.0)) ])
-            self.results_tab_axes.set_xticklabels([str(n) for n in range(0, int(t * no_traces), int((t * no_traces) / 5))])
+            try:
+            	self.results_tab_axes.set_xticklabels([str(n) for n in range(0, int(t * no_traces), int((t * no_traces) / 5))])
+            except:
+            	pass
             self.results_tab_axes.plot(list(range(0, len(model_data))),model_data, 'r')
             self.results_tab_axes.legend(["model"])
             self.canvas2.draw()
